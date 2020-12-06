@@ -135,6 +135,7 @@ static void updatenumlockmask(void);
 static void updatetitle(int c);
 static int xerror(Display *dpy, XErrorEvent *ee);
 static void xsettitle(Window w, const char *str);
+static int possiblyshifted(int i);
 
 /* variables */
 static int screen;
@@ -369,7 +370,11 @@ drawbar(void)
 
 	cc = MIN(cc, nclients);
 	for (c = fc; c < fc + cc; c++) {
-		dc.w = width / cc;
+        if (nclients > 4 && c < 6)
+            dc.w = width / cc;
+        else
+            dc.w = width / cc;
+
 		if (c == sel) {
 			col = dc.sel;
 			dc.w += width % cc;
@@ -453,6 +458,7 @@ expose(const XEvent *e)
 void
 focus(int c)
 {
+    puts("focus");
 	char buf[BUFSIZ] = "tabbed-"VERSION" ::";
 	size_t i, n;
 	XWMHints* wmh;
@@ -502,10 +508,13 @@ focusin(const XEvent *e)
 	int dummy;
 	Window focused;
 
-	if (ev->mode != NotifyUngrab) {
+	// if (ev->mode != NotifyUngrab && ev->detail != NotifyInferior) {
+	if (ev->detail != NotifyInferior) {
 		XGetInputFocus(dpy, &focused, &dummy);
-		if (focused == win)
+		if (focused == win) {
+            printf("mode: focus: %x. win: %x, focused: %x\n", ev->type == FocusIn, win, focused);
 			focus(sel);
+        }
 	}
 }
 
@@ -525,6 +534,7 @@ focusurgent(const Arg *arg)
 
 	for (c = (sel + 1) % nclients; c != sel; c = (c + 1) % nclients) {
 		if (clients[c]->urgent) {
+            printf("focusurgent focus\n");
 			focus(c);
 			return;
 		}
@@ -777,6 +787,7 @@ manage(Window w)
 		/* Adjust sel before focus does set it to lastsel. */
 		if (sel >= nextpos)
 			sel++;
+        puts("manage focus");
 		focus(nextfocus ? nextpos :
 		      sel < 0 ? 0 :
 		      sel);
@@ -797,7 +808,7 @@ void
 move(const Arg *arg)
 {
 	if (arg->i >= 0 && arg->i < nclients)
-		focus(arg->i);
+		focus(possiblyshifted(arg->i));
 }
 
 void
@@ -880,7 +891,9 @@ propertynotify(const XEvent *e)
 	} else if (ev->state != PropertyDelete && ev->atom == XA_WM_NAME &&
 	           (c = getclient(ev->window)) > -1) {
 		updatetitle(c);
-	}
+	} else if (ev->state != PropertyNotify) {
+        printf("atom: %lu\n", ev->atom);
+    }
 }
 
 void
@@ -943,6 +956,8 @@ run(void)
 		XNextEvent(dpy, &ev);
 		if (handler[ev.type])
 			(handler[ev.type])(&ev); /* call handler */
+        else
+            printf("Unhandled event: %d\n", ev.type);
 	}
 }
 
@@ -1272,6 +1287,18 @@ xsettitle(Window w, const char *str)
 		XSetTextProperty(dpy, w, &xtp, XA_WM_NAME);
 		XFree(xtp.value);
 	}
+}
+
+int
+possiblyshifted(int i)
+{
+	if (nclients < 5)
+		return i;
+
+	if (i < 3 && i < nclients - 4)
+		return 2 * i + (sel == (2 * i));
+
+	return i + MIN(3, MAX(0, nclients - 4));
 }
 
 void
